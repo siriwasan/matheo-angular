@@ -13,14 +13,14 @@ import {
   Output,
   ViewEncapsulation,
 } from '@angular/core';
-import {MAT_DATE_FORMATS} from '@angular/material/core';
+import { MAT_DATE_FORMATS } from '@angular/material/core';
+import { DateAdapter, MatDateFormats } from '@matheo/datepicker/core';
 import {
-  DateAdapter,
-  MatDateFormats,
-} from '@matheo/datepicker/core';
-import {MatCalendarCellClassFunction, MatCalendarUserEvent} from './calendar-body';
-import {createMissingDateImplError} from './datepicker-errors';
-import {DateFilterFn} from './datepicker-input-base';
+  MatCalendarCellClassFunction,
+  MatCalendarUserEvent,
+} from './calendar-body';
+import { createMissingDateImplError } from './datepicker-errors';
+import { DateFilterFn } from './datepicker-input-base';
 
 export const CLOCK_RADIUS = 50;
 export const CLOCK_INNER_RADIUS = 27.5;
@@ -41,9 +41,10 @@ export type ClockView = 'hour' | 'minute';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     role: 'clock',
-    '(mousedown)': '_handleMousedown($event)'
+    '(mousedown)': '_handleMousedown($event)',
+    '(touchstart)': '_handleTouchdown($event)', //Art
   },
-  preserveWhitespaces: false
+  preserveWhitespaces: false,
 })
 export class MatClockView<D> implements AfterViewInit, AfterContentInit {
   /**
@@ -128,12 +129,15 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
   readonly selectedChange: EventEmitter<D | null> = new EventEmitter<D | null>();
 
   /** Emits when any date is selected. */
-  @Output() readonly _userSelection = new EventEmitter<MatCalendarUserEvent<D | null>>();
+  @Output() readonly _userSelection = new EventEmitter<
+    MatCalendarUserEvent<D | null>
+  >();
 
   @HostListener('window:resize')
   updateSize() {
     const { offsetWidth, offsetHeight } = this._element.nativeElement;
-    this._size = (offsetWidth < offsetHeight ? offsetWidth : offsetHeight) * 0.9;
+    this._size =
+      (offsetWidth < offsetHeight ? offsetWidth : offsetHeight) * 0.9;
     this._changeDetectorRef.detectChanges();
   }
 
@@ -149,6 +153,8 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
 
   private mouseMoveListener: any;
   private mouseUpListener: any;
+  private touchMoveListener: any; //Art
+  private touchUpListener: any; //Art
 
   get inHourView(): boolean {
     return this.currentView === 'hour';
@@ -161,7 +167,8 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
     let deg = 0;
 
     if (this.inHourView) {
-      const outer = this.twelveHour || this._selectedHour >= 0 && this._selectedHour < 12;
+      const outer =
+        this.twelveHour || (this._selectedHour >= 0 && this._selectedHour < 12);
       radius = outer ? CLOCK_OUTER_RADIUS : CLOCK_INNER_RADIUS;
       deg = Math.round(this._selectedHour * (360 / (24 / 2)));
     } else {
@@ -197,6 +204,13 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
     this.mouseUpListener = () => {
       this._handleMouseup();
     };
+
+    this.touchMoveListener = (event: any) => {
+      this._handleTouchmove(event);
+    };
+    this.touchUpListener = () => {
+      this._handleTouchup();
+    };
   }
 
   ngAfterViewInit() {
@@ -211,9 +225,9 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
   _handleMousedown(event: any) {
     this._draggingMouse = true;
     document.addEventListener('mousemove', this.mouseMoveListener);
-    document.addEventListener('touchmove', this.mouseMoveListener);
+    // document.addEventListener('touchmove', this.mouseMoveListener);
     document.addEventListener('mouseup', this.mouseUpListener);
-    document.addEventListener('touchend', this.mouseUpListener);
+    // document.addEventListener('touchend', this.mouseUpListener);
     this.setTime(event);
   }
 
@@ -225,11 +239,53 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
   _handleMouseup() {
     this._draggingMouse = false;
     document.removeEventListener('mousemove', this.mouseMoveListener);
-    document.removeEventListener('touchmove', this.mouseMoveListener);
+    // document.removeEventListener('touchmove', this.mouseMoveListener);
     document.removeEventListener('mouseup', this.mouseUpListener);
-    document.removeEventListener('touchend', this.mouseUpListener);
+    // document.removeEventListener('touchend', this.mouseUpListener);
 
-    if (this.dateFilter && !this.dateFilter(this.activeDate, this.currentView)) {
+    if (
+      this.dateFilter &&
+      !this.dateFilter(this.activeDate, this.currentView)
+    ) {
+      return;
+    }
+
+    if (this.inHourView) {
+      // we refresh the valid minutes
+      this.currentViewChange.emit('minute');
+      this.selectedChange.emit(this.activeDate);
+      this._init();
+    } else {
+      this._userSelection.emit({ value: this.activeDate, event });
+    }
+  }
+
+  // Handles touch events on the clock body.
+  _handleTouchdown(event: any) {
+    this._draggingMouse = true;
+    document.addEventListener('touchmove', this.touchMoveListener, {
+      passive: false,
+    });
+    document.addEventListener('touchend', this.touchUpListener);
+    this.setTime(event);
+  }
+
+  _handleTouchmove(event: any) {
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+    this.setTime(event);
+  }
+
+  _handleTouchup() {
+    this._draggingMouse = false;
+    document.removeEventListener('touchmove', this.touchMoveListener);
+    document.removeEventListener('touchend', this.touchUpListener);
+
+    if (
+      this.dateFilter &&
+      !this.dateFilter(this.activeDate, this.currentView)
+    ) {
       return;
     }
 
@@ -280,7 +336,7 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
         const radian = (i / 6) * Math.PI;
         const outer = i > 0 && i < 13;
         const radius = outer ? CLOCK_OUTER_RADIUS : CLOCK_INNER_RADIUS;
-        const hour = i % 12 ? i : (i === 0 ? 12 : 0);
+        const hour = i % 12 ? i : i === 0 ? 12 : 0;
         const date = this._dateAdapter.createDate(
           this._dateAdapter.getYear(this.activeDate),
           this._dateAdapter.getMonth(this.activeDate),
@@ -348,8 +404,11 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
       Math.PI /
       (this.inHourView ? 6 : this.clockStep ? 30 / this.clockStep : 30);
     const z = Math.sqrt(x * x + y * y);
-    const avg = (width * (CLOCK_OUTER_RADIUS / 100) + width * (CLOCK_INNER_RADIUS / 100)) / 2;
-    const outer = this.inHourView && z > avg - 16 /* button radius */;
+    const avg =
+      (width * (CLOCK_OUTER_RADIUS / 100) +
+        width * (CLOCK_INNER_RADIUS / 100)) /
+      2;
+    const outer = this.inHourView && z > avg - 16; /* button radius */
 
     let radian = Math.atan2(-x, y);
     if (radian < 0) {
@@ -364,8 +423,12 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
         value = 0;
       }
       value = this.twelveHour
-        ? (this._anteMeridian ? value : value + 12)
-        : (outer ? value : value + 12);
+        ? this._anteMeridian
+          ? value
+          : value + 12
+        : outer
+        ? value
+        : value + 12;
       date = this._dateAdapter.setHours(date, value);
     } else {
       if (this.clockStep) {
@@ -394,6 +457,9 @@ export class MatClockView<D> implements AfterViewInit, AfterContentInit {
    * @returns The given object if it is both a date instance and valid, otherwise null.
    */
   private _getValidDateOrNull(obj: any): D | null {
-    return this._dateAdapter.isDateInstance(obj) && this._dateAdapter.isValid(obj) ? obj : null;
+    return this._dateAdapter.isDateInstance(obj) &&
+      this._dateAdapter.isValid(obj)
+      ? obj
+      : null;
   }
 }
